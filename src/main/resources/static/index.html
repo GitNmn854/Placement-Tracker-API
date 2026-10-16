@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Placement Tracker</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 24px;
+            color: #222;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+        }
+
+        form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        input, select, button {
+            padding: 8px 10px;
+            font-size: 14px;
+            border: 1px solid #bbb;
+            border-radius: 4px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 140px;
+        }
+
+        button {
+            cursor: pointer;
+            background: #2d6cdf;
+            color: #fff;
+            border: none;
+        }
+
+        button:hover {
+            background: #1f56b8;
+        }
+
+        button.delete-btn {
+            background: #d93a3a;
+        }
+
+        button.delete-btn:hover {
+            background: #b52b2b;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #e3e3e3;
+            font-size: 14px;
+        }
+
+        th {
+            background: #fafafa;
+        }
+
+        #message {
+            min-height: 20px;
+            font-size: 14px;
+            margin: 0 0 12px 0;
+        }
+
+        .error {
+            color: #c62828;
+        }
+
+        .success {
+            color: #2e7d32;
+        }
+
+        .empty {
+            text-align: center;
+            color: #777;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+    <h1>Placement Application Tracker</h1>
+    <p id="message"></p>
+
+    <!-- Form to add a new application -->
+    <div class="card">
+        <form id="appForm">
+            <input type="text" id="company" placeholder="Company" required>
+            <input type="text" id="jobTitle" placeholder="Job title" required>
+            <select id="status"></select>
+            <input type="text" id="notes" placeholder="Notes (optional)">
+            <button type="submit">Add</button>
+        </form>
+    </div>
+
+    <!-- Table of applications -->
+    <div class="card">
+        <table>
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Company</th>
+                <th>Job title</th>
+                <th>Status</th>
+                <th>Applied on</th>
+                <th>Notes</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Base URL of the REST API (same server, so no host name is needed)
+    const API_URL = "/api/applications";
+
+    // Same values as the JobStatus enum in the backend
+    const STATUSES = ["APPLIED", "OA", "INTERVIEW", "OFFER", "REJECTED"];
+
+    // References to elements on the page
+    const form = document.getElementById("appForm");
+    const statusSelect = document.getElementById("status");
+    const tableBody = document.getElementById("tableBody");
+    const messageEl = document.getElementById("message");
+
+    // Local copy of the data most recently loaded from the API
+    let applications = [];
+
+    // Show a success or error message above the form
+    function showMessage(text, isError) {
+        messageEl.textContent = text;
+        messageEl.className = isError ? "error" : "success";
+    }
+
+    // Fill a <select> element with the status options
+    function fillStatusOptions(selectElement, selectedValue) {
+        for (const status of STATUSES) {
+            const option = document.createElement("option");
+            option.value = status;
+            option.textContent = status;
+            selectElement.appendChild(option);
+        }
+        selectElement.value = selectedValue;
+    }
+
+    // Read the "message" field from the API's JSON error response
+    async function readError(response) {
+        try {
+            const data = await response.json();
+            return data.message;
+        } catch (e) {
+            return "Request failed (status " + response.status + ")";
+        }
+    }
+
+    // GET all applications, then redraw the table
+    async function loadApplications() {
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) {
+                showMessage(await readError(response), true);
+                return;
+            }
+            applications = await response.json();
+            renderTable();
+        } catch (e) {
+            showMessage("Could not reach the server. Is the app running?", true);
+        }
+    }
+
+    // Create one <td> cell with plain text
+    function makeCell(text) {
+        const cell = document.createElement("td");
+        cell.textContent = text;
+        return cell;
+    }
+
+    // Rebuild the table body from the 'applications' array
+    function renderTable() {
+        tableBody.innerHTML = "";
+
+        if (applications.length === 0) {
+            const row = document.createElement("tr");
+            const cell = document.createElement("td");
+            cell.colSpan = 7;
+            cell.className = "empty";
+            cell.textContent = "No applications yet. Add one above.";
+            row.appendChild(cell);
+            tableBody.appendChild(row);
+            return;
+        }
+
+        for (const app of applications) {
+            const row = document.createElement("tr");
+
+            row.appendChild(makeCell(app.id));
+            row.appendChild(makeCell(app.company));
+            row.appendChild(makeCell(app.jobTitle));
+
+            // Status cell: a dropdown that updates the status when changed
+            const statusCell = document.createElement("td");
+            const rowSelect = document.createElement("select");
+            fillStatusOptions(rowSelect, app.status);
+            rowSelect.addEventListener("change", function () {
+                updateStatus(app, rowSelect.value);
+            });
+            statusCell.appendChild(rowSelect);
+            row.appendChild(statusCell);
+
+            row.appendChild(makeCell(app.dateApplied));
+            row.appendChild(makeCell(app.notes ? app.notes : ""));
+
+            // Delete button cell
+            const deleteCell = document.createElement("td");
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "Delete";
+            deleteBtn.className = "delete-btn";
+            deleteBtn.addEventListener("click", function () {
+                deleteApplication(app.id);
+            });
+            deleteCell.appendChild(deleteBtn);
+            row.appendChild(deleteCell);
+
+            tableBody.appendChild(row);
+        }
+    }
+
+    // POST a new application when the form is submitted
+    form.addEventListener("submit", async function (event) {
+        event.preventDefault(); // stop the browser from reloading the page
+
+        const newApplication = {
+            company: document.getElementById("company").value.trim(),
+            jobTitle: document.getElementById("jobTitle").value.trim(),
+            status: statusSelect.value,
+            notes: document.getElementById("notes").value.trim()
+        };
+
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newApplication)
+            });
+
+            if (!response.ok) {
+                showMessage(await readError(response), true);
+                return;
+            }
+
+            form.reset();
+            statusSelect.value = "APPLIED";
+            showMessage("Application added.", false);
+            loadApplications();
+        } catch (e) {
+            showMessage("Could not reach the server. Is the app running?", true);
+        }
+    });
+
+    // PUT the whole application with its new status
+    async function updateStatus(app, newStatus) {
+        const updatedApplication = { ...app, status: newStatus };
+
+        try {
+            const response = await fetch(API_URL, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updatedApplication)
+            });
+
+            if (!response.ok) {
+                showMessage(await readError(response), true);
+            } else {
+                showMessage("Status updated to " + newStatus + ".", false);
+            }
+        } catch (e) {
+            showMessage("Could not reach the server. Is the app running?", true);
+        }
+
+        loadApplications(); // refresh so the table matches the database
+    }
+
+    // DELETE one application by id
+    async function deleteApplication(id) {
+        if (!confirm("Delete application " + id + "?")) {
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL + "/" + id, { method: "DELETE" });
+
+            if (!response.ok) {
+                showMessage(await readError(response), true);
+            } else {
+                showMessage(await response.text(), false);
+            }
+        } catch (e) {
+            showMessage("Could not reach the server. Is the app running?", true);
+        }
+
+        loadApplications();
+    }
+
+    // Runs once when the page opens
+    fillStatusOptions(statusSelect, "APPLIED");
+    loadApplications();
+</script>
+</body>
+</html>
